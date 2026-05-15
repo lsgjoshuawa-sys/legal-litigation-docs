@@ -1,0 +1,33 @@
+[project]
+name = "legal-agent"
+version = "0.1.0"
+description = "Litigation expert AI system for legal operations, case intake, authority verification, and drafting assistance."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "PySide6>=6.6.0",
+  "openai>=1.0.0"
+]
+keywords = ["legal", "litigation", "AI", "case management", "authority verification"]
+authors = [
+  {name = "Litigation Expert AI System"}
+]
+license = "MIT"
+classifiers = [
+  "Programming Language :: Python :: 3.12",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: MacOS :: MacOS X",
+  "Operating System :: POSIX :: Linux"
+]
+
+[tool.setuptools.packages.find]
+include = ["legal_agent", "legal_agent_gui"]
+
+[project.scripts]
+legal-agent = "legal_agent.cli:main"
+legal-agent-gui = "legal_agent.gui:run_gui"
+legal-agent-safe-check = "legal_agent.safe_check:main"
+
+[build-system]
+requires = ["setuptools>=65.0.0", "wheel"]
+build-backend = "setuptools.build_meta"

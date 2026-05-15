@@ -1,0 +1,17 @@
+.env
+.Tenv
+*.db
+*.sqlite
+*.sqlite3
+.coverage
+htmlcov/
+.legal_agent/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.agents/
+.codex/
+
+!.env.example

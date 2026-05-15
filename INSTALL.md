@@ -1,5 +1,15 @@
 # Clean Installation
 
+## One-Click Graphical Installer
+
+Double-click `START_INSTALLER.pyw` in the project root to open the guided installer. It walks through features, examples, required API key setup, local installation, database initialization, and the option to create a Desktop shortcut.
+
+The graphical installer requires Python with Tkinter support. Python.org Windows and macOS installers normally include Tkinter. On some Linux distributions, install the `python3-tk` system package if the installer window does not open.
+
+The OpenAI API key is required before the installer will start the application. CourtListener is optional and can be enabled during installation.
+
+## Command-Line Installers
+
 Use the installer for your operating system from the project root. Each installer creates a local `.venv`, installs the app, initializes `legal_agent.db`, and asks whether to create a desktop shortcut for the GUI.
 
 ## Windows 11
@@ -63,4 +73,3 @@ On Windows PowerShell:
 ## Configuration
 
 Copy `.env.example` to `.env` or enter your OpenAI API key in the Settings page. Keep `.env`, local databases, logs, and exported client data out of source control.
-

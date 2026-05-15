@@ -18,7 +18,7 @@ Privacy rule: do not enter API keys, passwords, private tokens, or unrelated per
 
 ## Clean Install
 
-Use `INSTALL.md` in the project root for Windows 11, Linux, and macOS installation commands. The OS installers create the local `.venv`, install the app, initialize the database, and offer to create a Desktop shortcut for the GUI when setup is finished.
+Double-click `START_INSTALLER.pyw` in the project root for the graphical installer. It explains the main features, requires OpenAI API key setup before startup, installs the app, initializes the database, and offers to create a Desktop shortcut. Use `INSTALL.md` for fallback Windows 11, Linux, and macOS command-line installers.
 
 ## Top Bar
 

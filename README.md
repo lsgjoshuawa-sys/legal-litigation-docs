@@ -17,7 +17,15 @@ A command-line legal operations and litigation drafting assistant built in Pytho
 
 ## Installation
 
-For a clean OS-specific setup, use the root install guide:
+For a one-click guided setup, double-click this file from the project root:
+
+```text
+START_INSTALLER.pyw
+```
+
+The graphical installer explains the core features, requires an OpenAI API key before first startup, installs the app, initializes the database, and offers to create a Desktop shortcut.
+
+For full clean-install details, use the root install guide:
 
 ```bash
 cat INSTALL.md

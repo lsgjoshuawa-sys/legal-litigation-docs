@@ -33,7 +33,9 @@ def add_research_log(
     try:
         json.loads(authority_ids_json)
     except json.JSONDecodeError:
-        authority_ids_json = json.dumps([item.strip() for item in authority_ids_json.split(",") if item.strip()])
+        authority_ids_json = json.dumps(
+            [item.strip(" \t\r-*") for item in authority_ids_json.replace(",", "\n").splitlines() if item.strip(" \t\r-*")]
+        )
     log = ResearchLog(
         case_id=case_id,
         query=query,

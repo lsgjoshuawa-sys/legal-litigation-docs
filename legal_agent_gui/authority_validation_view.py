@@ -51,6 +51,7 @@ class AuthorityValidationView(BaseView):
         self._notify_case_data_changed(self.case_id)
 
     def refresh(self) -> None:
+        selected_id = self.list_widget.currentItem().data(QtCore.Qt.UserRole) if self.list_widget.currentItem() else None
         self.list_widget.clear()
         if not self.case_id:
             return
@@ -60,6 +61,16 @@ class AuthorityValidationView(BaseView):
             item = QtWidgets.QListWidgetItem(f"[{status}] {auth['title']} ({auth['citation']})")
             item.setData(QtCore.Qt.UserRole, auth["id"])
             self.list_widget.addItem(item)
+            if selected_id and auth["id"] == selected_id:
+                self.list_widget.setCurrentItem(item)
+
+    def select_record(self, record_id: int) -> bool:
+        for index in range(self.list_widget.count()):
+            item = self.list_widget.item(index)
+            if item.data(QtCore.Qt.UserRole) == record_id:
+                self.list_widget.setCurrentItem(item)
+                return True
+        return False
 
 
 class AuthorityDialog(QtWidgets.QDialog):

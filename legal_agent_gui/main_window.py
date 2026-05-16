@@ -8,6 +8,7 @@ from .styles import APP_STYLE
 from .widgets import BaseView
 from .dashboard import DashboardView
 from .case_intake_view import CaseIntakeView
+from .file_submission_view import FileSubmissionView
 from .parties_view import PartiesView
 from .facts_view import FactsView
 from .claims_view import ClaimsView
@@ -99,6 +100,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.sidebar.addItems([
             "Dashboard",
             "Case Intake",
+            "File Submission",
             "Parties",
             "Facts",
             "Claims / Defenses",
@@ -151,6 +153,7 @@ class MainWindow(QtWidgets.QMainWindow):
         self.views: dict[str, BaseView] = {
             "Dashboard": DashboardView(self.db_path),
             "Case Intake": CaseIntakeView(self.db_path, self),
+            "File Submission": FileSubmissionView(self.db_path),
             "Parties": PartiesView(self.db_path),
             "Facts": FactsView(self.db_path),
             "Claims / Defenses": ClaimsView(self.db_path),

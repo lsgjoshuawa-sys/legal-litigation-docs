@@ -5,6 +5,7 @@ A command-line legal operations and litigation drafting assistant built in Pytho
 ## Features
 
 - Case intake tracking for facts, parties, claims, evidence, and actions
+- File submission page that routes local documents to the right topic handler, with optional extraction for compatible text-style files
 - Jurisdiction classification for California Superior Court, Eastern District of California, and local government disputes
 - Procedural rule identification by track
 - Manual authority research logging and verification

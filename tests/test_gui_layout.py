@@ -1,6 +1,8 @@
 import os
+import json
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -12,6 +14,8 @@ from legal_agent import db
 from legal_agent.authority_validation import add_authority
 from legal_agent.case_profile import build_case_profile
 from legal_agent.case_tracks import LEGAL_TRACK_CHOICES, TRACK_FEDERAL_EDCA
+from legal_agent.intake import add_claim, add_evidence, create_case, list_claims, list_evidence
+from legal_agent.research import add_research_log
 from legal_agent_gui.app import _is_noisy_qt_message, _linux_display_preflight_error
 from legal_agent_gui.courtlistener_research_view import CourtListenerResearchView
 from legal_agent_gui.main_window import MainWindow
@@ -37,6 +41,153 @@ class TestGuiLayout(unittest.TestCase):
 
         self.assertLessEqual(window.width(), available.width())
         self.assertLessEqual(window.height(), available.height())
+
+    def test_file_submission_opens_and_selects_evidence_record(self):
+        case_id = create_case("File Submit UI", db_path=self.temp_db.name)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            submitted_file = Path(temp_dir) / "test_evidence.txt"
+            submitted_file.write_text("Evidence text from file submission.", encoding="utf-8")
+
+            window = MainWindow(db_path=self.temp_db.name)
+            window.refresh_case_data(select_case_id=case_id)
+            submit_view = window.views["File Submission"]
+            submit_view.file_input.setText(str(submitted_file))
+            submit_view.title_input.setText("Submitted Evidence")
+            submit_view.route_input.setCurrentText("Evidence")
+            submit_view.preview_input.setPlainText("Evidence text from file submission.")
+
+            submit_view._submit_file()
+
+            evidence_view = window.views["Evidence"]
+            self.assertEqual(window.stack.currentWidget(), evidence_view)
+            self.assertEqual(evidence_view.evidence_list.count(), 1)
+            self.assertEqual(evidence_view.evidence_list.currentItem().text(), "Submitted Evidence (document)")
+            self.assertEqual(evidence_view.title_input.text(), "Submitted Evidence")
+
+    def test_file_submission_open_route_button_uses_dropdown_before_submit(self):
+        case_id = create_case("File Submit Route Button", db_path=self.temp_db.name)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            submitted_file = Path(temp_dir) / "motion_to_route.pdf"
+            submitted_file.write_bytes(b"%PDF-1.4\n")
+
+            window = MainWindow(db_path=self.temp_db.name)
+            window.refresh_case_data(select_case_id=case_id)
+            submit_view = window.views["File Submission"]
+            submit_view.file_input.setText(str(submitted_file))
+
+            submit_view._analyze_file()
+            submit_view.route_input.setCurrentText("Draft Generator")
+            submit_view._open_current_handler()
+
+            self.assertEqual(window.stack.currentWidget(), window.views["Draft Generator"])
+            self.assertEqual(submit_view.message_label.text(), "Opened Draft Generator.")
+
+    def test_file_submission_submits_pdf_to_selected_draft_handler(self):
+        case_id = create_case("File Submit PDF Draft", db_path=self.temp_db.name)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            submitted_file = Path(temp_dir) / "motion_to_draft.pdf"
+            submitted_file.write_bytes(b"%PDF-1.4\n% test fixture\n")
+
+            window = MainWindow(db_path=self.temp_db.name)
+            window.refresh_case_data(select_case_id=case_id)
+            submit_view = window.views["File Submission"]
+            submit_view.file_input.setText(str(submitted_file))
+            submit_view.title_input.setText("Motion PDF")
+
+            submit_view._analyze_file()
+            submit_view.route_input.setCurrentText("Draft Generator")
+            submit_view._submit_file()
+
+            draft_view = window.views["Draft Generator"]
+            self.assertEqual(window.stack.currentWidget(), draft_view)
+            self.assertEqual(draft_view.document_type_input.text(), "motion")
+            self.assertIn("motion_to_draft.pdf", draft_view.output.toPlainText())
+            self.assertIn("Submitted 'motion_to_draft.pdf' to Draft Generator", submit_view.message_label.text())
+
+    def test_file_submission_surfaces_each_routed_handler_record(self):
+        case_id = create_case("File Submit Routes", db_path=self.temp_db.name)
+        window = MainWindow(db_path=self.temp_db.name)
+        window.refresh_case_data(select_case_id=case_id)
+        submit_view = window.views["File Submission"]
+
+        submissions = [
+            (
+                "Authority Validation",
+                "authority.txt",
+                "Title: Route Test v. City\nAuthority type: case\nCitation: 22 F.3d 1\n",
+                lambda: self.assertIn("Route Test v. City", window.views["Authority Validation"].list_widget.currentItem().text()),
+            ),
+            (
+                "Legal Research",
+                "research.txt",
+                "Query: What is the filing standard?\nSource: local rule memo\nResult summary: Check local rule timing.\n",
+                lambda: self.assertEqual(window.views["Legal Research"].query_input.text(), "What is the filing standard?"),
+            ),
+            (
+                "Action Items & Due Dates",
+                "action.txt",
+                "Action: Review filed proof of service\nDue date: 2026-06-02\nCategory: service\n",
+                lambda: self.assertEqual(window.views["Action Items & Due Dates"].action_input.toPlainText(), "Review filed proof of service"),
+            ),
+            (
+                "Facts",
+                "fact.txt",
+                "Date: 2026-05-03\nFact: Agency received the claim notice.\nRelevance: exhaustion\n",
+                lambda: self.assertEqual(window.views["Facts"].fact_text_input.toPlainText(), "Agency received the claim notice."),
+            ),
+            (
+                "Draft Generator",
+                "draft.md",
+                "Title: Imported Motion\nDocument type: motion\nContent: Imported motion text.\n",
+                lambda: self.assertIn("Imported motion text.", window.views["Draft Generator"].output.toPlainText()),
+            ),
+        ]
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for handler, filename, content, assertion in submissions:
+                submitted_file = Path(temp_dir) / filename
+                submitted_file.write_text(content, encoding="utf-8")
+                submit_view.file_input.setText(str(submitted_file))
+                submit_view.title_input.clear()
+                submit_view.notes_input.clear()
+                submit_view.route_input.setCurrentText(handler)
+                submit_view.preview_input.setPlainText(content)
+                submit_view.extract_data_input.setChecked(True)
+
+                submit_view._submit_file()
+
+                self.assertEqual(window.stack.currentWidget(), window.views[handler])
+                assertion()
+
+    def test_structured_list_fields_use_plain_text_in_gui(self):
+        case_id = create_case("Plain List UI", db_path=self.temp_db.name)
+        add_claim(case_id, "Negligence", required_elements_json='["Duty", "Breach"]', db_path=self.temp_db.name)
+        add_evidence(case_id, "Photo", supports_claims_json='["Negligence"]', db_path=self.temp_db.name)
+        add_research_log(case_id, "Query", "Source", "Summary", '["1", "2"]', self.temp_db.name)
+
+        window = MainWindow(db_path=self.temp_db.name)
+        window.refresh_case_data(select_case_id=case_id)
+
+        claims_view = window.views["Claims / Defenses"]
+        claims_view.claim_list.setCurrentRow(0)
+        self.assertEqual(claims_view.required_input.toPlainText(), "Duty\nBreach")
+        self.assertIn("One required element per line", claims_view.required_input.placeholderText())
+        claims_view.required_input.setPlainText("Duty\nBreach\nCausation")
+        claims_view._save_claim()
+        self.assertEqual(json.loads(list_claims(case_id, self.temp_db.name)[0]["required_elements_json"]), ["Duty", "Breach", "Causation"])
+
+        evidence_view = window.views["Evidence"]
+        evidence_view.evidence_list.setCurrentRow(0)
+        self.assertEqual(evidence_view.supports_input.toPlainText(), "Negligence")
+        self.assertIn("One supported claim", evidence_view.supports_input.placeholderText())
+        evidence_view.supports_input.setPlainText("Negligence\nNegligent Entrustment")
+        evidence_view._save_evidence()
+        self.assertEqual(json.loads(list_evidence(case_id, self.temp_db.name)[0]["supports_claims_json"]), ["Negligence", "Negligent Entrustment"])
+
+        research_view = window.views["Legal Research"]
+        research_view.log_list.setCurrentRow(0)
+        self.assertEqual(research_view.authority_ids_input.text(), "1, 2")
+        self.assertIn("commas or spaces", research_view.authority_ids_input.placeholderText())
 
     def test_views_use_scroll_area_and_compact_editors(self):
         window = MainWindow(db_path=self.temp_db.name)

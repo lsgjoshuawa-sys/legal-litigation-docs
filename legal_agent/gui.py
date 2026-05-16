@@ -168,7 +168,11 @@ class LegalAgentGUI:
             return
         claim_type = simpledialog.askstring("Add Claim", "Claim type:", initialvalue="") or ""
         basis = simpledialog.askstring("Add Claim", "Jurisdiction basis:", initialvalue="") or ""
-        required = simpledialog.askstring("Add Claim", "Required elements as JSON list:", initialvalue='["Element1", "Element2"]') or "[]"
+        required = simpledialog.askstring(
+            "Add Claim",
+            "Required elements, separated by commas:",
+            initialvalue="Duty, Breach, Causation, Damages",
+        ) or ""
         add_claim(case_id, claim_name, claim_type, basis, required, db_path=self.db_path)
         messagebox.showinfo("Added", "Claim added.")
 
@@ -181,7 +185,11 @@ class LegalAgentGUI:
             return
         evidence_type = simpledialog.askstring("Add Evidence", "Evidence type:", initialvalue="") or ""
         description = simpledialog.askstring("Add Evidence", "Description:", initialvalue="") or ""
-        supports = simpledialog.askstring("Add Evidence", "Supports claims list as JSON:", initialvalue='["Claim Name"]') or "[]"
+        supports = simpledialog.askstring(
+            "Add Evidence",
+            "Supported claims or defenses, separated by commas:",
+            initialvalue="Breach of Contract",
+        ) or ""
         add_evidence(case_id, title, evidence_type, description, supports_claims_json=supports, db_path=self.db_path)
         messagebox.showinfo("Added", "Evidence added.")
 

@@ -76,6 +76,7 @@ class ActionItemsView(BaseView):
             self._notify_case_data_changed(self.case_id)
 
     def refresh(self) -> None:
+        selected_id = self.current_action_id
         self.action_list.clear()
         if not self.case_id:
             return
@@ -84,3 +85,15 @@ class ActionItemsView(BaseView):
             item = QtWidgets.QListWidgetItem(label)
             item.setData(QtCore.Qt.UserRole, action)
             self.action_list.addItem(item)
+            if selected_id and action["id"] == selected_id:
+                self.action_list.setCurrentItem(item)
+
+    def select_record(self, record_id: int) -> bool:
+        for index in range(self.action_list.count()):
+            item = self.action_list.item(index)
+            action = item.data(QtCore.Qt.UserRole)
+            if action and action["id"] == record_id:
+                self.action_list.setCurrentItem(item)
+                self._load_action(item)
+                return True
+        return False

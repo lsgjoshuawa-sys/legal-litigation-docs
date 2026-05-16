@@ -34,7 +34,7 @@ def _normalize_json_list(value: str | None) -> str:
             return json.dumps(parsed)
         return json.dumps([str(parsed)])
     except json.JSONDecodeError:
-        return json.dumps([item.strip() for item in text.split(",") if item.strip()])
+        return json.dumps([item.strip(" \t\r-*") for item in text.replace(",", "\n").splitlines() if item.strip(" \t\r-*")])
 
 
 def create_case(

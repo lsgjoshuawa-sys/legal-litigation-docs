@@ -10,7 +10,7 @@ This manual explains what each major field is asking for, how to classify the in
 | Long text | Complete factual notes, summaries, or analysis | `Officer cited driver after alleged contest...` |
 | Date | Prefer `YYYY-MM-DD` | `2026-05-14` |
 | Numeric ID | Digits only, copied from the app list | `3` |
-| JSON list | Square brackets with quoted strings | `["Offer", "Acceptance", "Damages"]` |
+| Plain list | One item per line, or comma-separated for short fields | `Offer` / `Acceptance` / `Damages` |
 | URL | Full web address | `https://www.courtlistener.com/...` |
 | File path | Local path on your computer | `/home/josh/Documents/export.md` |
 
@@ -40,6 +40,25 @@ Double-click `START_INSTALLER.pyw` in the project root for the graphical install
 | Judge | Judicial officer | Short text | Enter judge name if assigned. Leave blank if unknown. |
 | Department | Court department / courtroom | Short text | Enter department, division, or courtroom if known. |
 | Filing status | Procedural status | Short text | Examples: `pre-filing`, `filed`, `served`, `discovery`, `post-judgment`. |
+
+## File Submission
+
+Use this page to add a local file to the active case and route it to the topic handler that should process it. The app detects a suggested route from the file name and readable text preview, but you can override the destination before submitting. Data extraction is available only for readable text-style files: TXT, Markdown, CSV, JSON, XML, HTML, HTM, and RTF.
+
+| Field / control | Information classification | Data type | Correct use |
+| --- | --- | --- | --- |
+| File | Source document path | File path text | Choose the local file to submit. The app stores a reference to the path; it does not move the original file. |
+| Browse | File picker action | Button | Opens a file picker and then analyzes the selected file. |
+| Title | Submission label | Short text | Clear name for the file as it should appear in the selected handler. |
+| Submission notes | Routing and source context | Long text | Optional explanation, such as why the document matters, source, deadlines, or review instructions. |
+| Detected topic | Routing suggestion | Read-only text | Shows the suggested handler, confidence, and keyword reasons. |
+| Route to | Topic handler destination | Dropdown | Override the destination if the detected topic is wrong. Options include Evidence, Authority Validation, Legal Research, Action Items, Facts, and Draft Generator. |
+| Data extraction | Structured detail extraction | Checkbox | Enable this only for compatible text-style files. It reads labeled fields such as `Title:`, `Date:`, `Citation:`, `Fact:`, `Query:`, `Action:`, `Due date:`, `Document type:`, and `Content:` into the routed handler. |
+| Compatible types | Extraction guidance | Read-only text | Recommends compatible extraction file types. PDFs, images, audio, video, and Word files can still be routed and stored, but text extraction is not attempted. |
+| Preview | Text preview | Long text | Auto-filled only for readable text files. You may edit it before submission. |
+| Analyze File | Routing action | Button | Reads the file name and text preview, then suggests a handler. |
+| Submit to Handler | Save action | Button | Creates the corresponding record in the selected handler for the active case, then opens the routed handler and surfaces the new record. |
+| Open Routed Handler | Navigation action | Button | Opens the destination page after a successful submission. |
 
 ### Procedure Track Choices
 
@@ -75,7 +94,7 @@ Double-click `START_INSTALLER.pyw` in the project root for the graphical install
 | Claim name | Cause of action or defense | Short text | Examples: `Breach of Contract`, `Section 1983 violation`, `Affirmative defense - statute of limitations`. |
 | Claim type | Claim classification | Short text | Examples: `cause of action`, `affirmative defense`, `counterclaim`, `procedural objection`. |
 | Jurisdiction basis | Legal basis / authority | Short text | Statute, constitutional provision, contract basis, or rule source. |
-| Required elements (JSON list) | Element checklist source | JSON list | Enter elements as a valid JSON list, such as `["Duty", "Breach", "Causation", "Damages"]`. |
+| Required elements | Element checklist source | Plain list | Enter one element per line, such as `Duty`, `Breach`, `Causation`, and `Damages`. |
 | Status | Workflow status | Short text | Examples: `draft`, `needs evidence`, `ready for review`, `dismissal risk`. |
 | Notes | Claim analysis | Long text | Element concerns, missing facts, pleading risks, or strategy notes. |
 
@@ -88,7 +107,7 @@ Double-click `START_INSTALLER.pyw` in the project root for the graphical install
 | Description | Evidence summary | Long text | What the item shows, proves, or contradicts. |
 | File path | Local file reference | File path text | Local path to the source file if stored on your computer. |
 | Date obtained | Acquisition date | Date text | Prefer `YYYY-MM-DD`. |
-| Supported claims (JSON list) | Claim linkage | JSON list | Claims or defenses this item supports, such as `["Breach of Contract"]`. |
+| Supported claims | Claim linkage | Plain list | Enter one supported claim or defense per line, such as `Breach of Contract`. |
 | Admissibility notes | Evidence rule concerns | Long text | Authentication, hearsay, foundation, relevance, privilege, chain of custody. |
 | Weakness notes | Reliability or use limits | Long text | Missing foundation, contradictory evidence, unclear source, incomplete copy, credibility issues. |
 
@@ -110,7 +129,7 @@ Double-click `START_INSTALLER.pyw` in the project root for the graphical install
 | Query | Research question | Short text | The legal issue or search question. |
 | Source | Research source | Short text | Examples: `CourtListener`, `official court site`, `statute`, `secondary source`. |
 | Result summary | Research result | Long text | Summarize the answer or useful authority without pasting unnecessary full text. |
-| Authority IDs (JSON list) | Link to stored authorities | JSON list of numbers or strings | IDs from the Authority Validation list, such as `[1, 2]`. |
+| Authority IDs | Link to stored authorities | Plain ID list | IDs from the Authority Validation list, separated by commas or spaces, such as `1, 2`. |
 
 ## CourtListener Research
 
@@ -237,7 +256,7 @@ Before generating drafts, exports, or AI analysis, confirm:
 1. Case Intake has a title, procedure track, jurisdiction, court, and filing status.
 2. Parties identify each person/entity and role.
 3. Facts are separated into specific factual assertions.
-4. Claims list required elements as valid JSON lists.
+4. Claims list required elements as plain text, one element per line.
 5. Evidence entries explain what each item proves and which claims it supports.
 6. Authorities include citation, jurisdiction, court, year, source URL, excerpt, and treatment status.
 7. Important authorities are marked verified only after manual verification.

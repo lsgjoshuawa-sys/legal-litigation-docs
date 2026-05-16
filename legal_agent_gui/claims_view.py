@@ -3,6 +3,7 @@ from __future__ import annotations
 from PySide6 import QtCore, QtWidgets
 
 from legal_agent.intake import add_claim, delete_claim, list_claims, update_claim
+from .plain_text_lists import json_list_from_plain_text, plain_text_from_list_storage
 from .widgets import BaseView
 
 
@@ -18,6 +19,7 @@ class ClaimsView(BaseView):
         self.type_input = QtWidgets.QLineEdit()
         self.basis_input = QtWidgets.QLineEdit()
         self.required_input = QtWidgets.QTextEdit()
+        self.required_input.setPlaceholderText("One required element per line, e.g.\nDuty\nBreach\nCausation\nDamages")
         self.status_input = QtWidgets.QLineEdit()
         self.notes_input = QtWidgets.QTextEdit()
         self.save_button = QtWidgets.QPushButton("Save Claim")
@@ -28,7 +30,7 @@ class ClaimsView(BaseView):
         form.addRow("Claim name:", self.name_input)
         form.addRow("Claim type:", self.type_input)
         form.addRow("Jurisdiction basis:", self.basis_input)
-        form.addRow("Required elements (JSON list):", self.required_input)
+        form.addRow("Required elements:", self.required_input)
         form.addRow("Status:", self.status_input)
         form.addRow("Notes:", self.notes_input)
         self.layout.addLayout(form)
@@ -47,17 +49,18 @@ class ClaimsView(BaseView):
         self.name_input.setText(claim["claim_name"])
         self.type_input.setText(claim["claim_type"])
         self.basis_input.setText(claim["jurisdiction_basis"])
-        self.required_input.setPlainText(claim["required_elements_json"])
+        self.required_input.setPlainText(plain_text_from_list_storage(claim["required_elements_json"]))
         self.status_input.setText(claim["status"])
         self.notes_input.setPlainText(claim["notes"])
 
     def _save_claim(self) -> None:
         if not self.case_id:
             return
+        required_elements = json_list_from_plain_text(self.required_input.toPlainText())
         if self.current_claim_id:
-            update_claim(self.current_claim_id, self.name_input.text().strip(), self.type_input.text().strip(), self.basis_input.text().strip(), self.required_input.toPlainText().strip(), self.status_input.text().strip(), self.notes_input.toPlainText().strip(), self.db_path)
+            update_claim(self.current_claim_id, self.name_input.text().strip(), self.type_input.text().strip(), self.basis_input.text().strip(), required_elements, self.status_input.text().strip(), self.notes_input.toPlainText().strip(), self.db_path)
         else:
-            add_claim(self.case_id, self.name_input.text().strip(), self.type_input.text().strip(), self.basis_input.text().strip(), self.required_input.toPlainText().strip(), self.status_input.text().strip(), self.notes_input.toPlainText().strip(), self.db_path)
+            add_claim(self.case_id, self.name_input.text().strip(), self.type_input.text().strip(), self.basis_input.text().strip(), required_elements, self.status_input.text().strip(), self.notes_input.toPlainText().strip(), self.db_path)
         self._notify_case_data_changed(self.case_id)
 
     def _delete_claim(self) -> None:

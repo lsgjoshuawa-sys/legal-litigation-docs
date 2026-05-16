@@ -66,6 +66,7 @@ class FactsView(BaseView):
             self._notify_case_data_changed(self.case_id)
 
     def refresh(self) -> None:
+        selected_id = self.current_fact_id
         self.fact_list.clear()
         self.evidence_input.clear()
         if not self.case_id:
@@ -76,3 +77,15 @@ class FactsView(BaseView):
             item = QtWidgets.QListWidgetItem(f"{fact['date']}: {fact['fact_text'][:60]}")
             item.setData(QtCore.Qt.UserRole, fact)
             self.fact_list.addItem(item)
+            if selected_id and fact["id"] == selected_id:
+                self.fact_list.setCurrentItem(item)
+
+    def select_record(self, record_id: int) -> bool:
+        for index in range(self.fact_list.count()):
+            item = self.fact_list.item(index)
+            fact = item.data(QtCore.Qt.UserRole)
+            if fact and fact["id"] == record_id:
+                self.fact_list.setCurrentItem(item)
+                self._load_fact(item)
+                return True
+        return False

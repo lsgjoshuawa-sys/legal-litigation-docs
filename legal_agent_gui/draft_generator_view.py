@@ -3,7 +3,7 @@ from __future__ import annotations
 from PySide6 import QtWidgets
 
 from legal_agent.authority_validation import get_verified_authorities
-from legal_agent.drafting import save_document
+from legal_agent.drafting import get_document, save_document
 from .widgets import BaseView
 
 
@@ -48,3 +48,11 @@ class DraftGeneratorView(BaseView):
 
     def refresh(self) -> None:
         self.output.clear()
+
+    def select_record(self, record_id: int) -> bool:
+        document = get_document(record_id, self.db_path)
+        if not document:
+            return False
+        self.document_type_input.setText(document.get("document_type", ""))
+        self.output.setPlainText(document.get("draft_markdown", ""))
+        return True

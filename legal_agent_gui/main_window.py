@@ -1,6 +1,7 @@
 from __future__ import annotations
+
 import os
-from typing import Any, Dict, Optional
+from typing import Optional
 
 from PySide6 import QtCore, QtWidgets
 
@@ -32,8 +33,9 @@ from .filing_checklist_view import FilingChecklistView
 from .export_view import ExportView
 from .settings_view import SettingsView
 from .audit_log_view import AuditLogView
-from . import widgets
-from legal_agent.intake import list_case_ids, list_cases, get_case
+from .court_response_compliance_view import CourtResponseComplianceView
+from legal_agent.court_response_compliance import SMART_REVIEW_TAB_LABEL
+from legal_agent.intake import get_case, list_cases
 from legal_agent.case_folders import scan_all_case_folders
 from legal_agent.logger import get_logger
 from legal_agent.observability import performance_checkpoint
@@ -57,10 +59,11 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.current_case_id: int | None = None
                 self.cases = []
                 self.safe_check = None
+                self._switching_workspace_tab = False
+                self._last_case_workspace_row = 0
 
                 init_db(db_path)
 
-                # Check database health
                 if not check_db_health(db_path):
                     logger.warning("Database health check failed, attempting to continue")
 
@@ -70,17 +73,14 @@ class MainWindow(QtWidgets.QMainWindow):
                     logger.debug("Startup case-folder scan completed: %s", self.startup_folder_scan_result.to_dict())
                 except Exception as exc:
                     logger.warning("Startup case-folder scan failed: %s", exc)
-                
+
                 self.setWindowTitle("Litigation Expert AI System")
-                # Auto-adjust window size to available screen dimensions
                 screen = QtWidgets.QApplication.primaryScreen()
                 available_geometry = screen.availableGeometry()
-                # Use most of the available screen without extending under taskbars or docks.
                 width = min(max(900, int(available_geometry.width() * 0.9)), available_geometry.width())
                 height = min(max(620, int(available_geometry.height() * 0.9)), available_geometry.height())
                 self.setMinimumSize(min(720, width), min(500, height))
                 self.resize(width, height)
-                # Center the window on the screen
                 frame_geometry = self.frameGeometry()
                 frame_geometry.moveCenter(available_geometry.center())
                 self.move(frame_geometry.topLeft())
@@ -106,41 +106,46 @@ class MainWindow(QtWidgets.QMainWindow):
                 logger.debug("MainWindow initialization completed successfully")
         except Exception as e:
             logger.exception("Failed to initialize MainWindow")
-            QtWidgets.QMessageBox.critical(None, "Initialization Error", 
-                                          f"Failed to start application:\n{str(e)[:200]}")
+            QtWidgets.QMessageBox.critical(
+                None,
+                "Initialization Error",
+                f"Failed to start application:\n{str(e)[:200]}",
+            )
             raise
 
     def _build_sidebar(self) -> None:
         self.sidebar = QtWidgets.QListWidget()
         self.sidebar.setMaximumWidth(260)
-        self.sidebar.addItems([
-            "Dashboard",
-            "Case Intake",
-            "File Submission",
-            "Case Folder Intake",
-            "Parties",
-            "Facts",
-            "Claims / Defenses",
-            "Evidence",
-            "Action Items & Due Dates",
-            "Litigation Timeline",
-            "Jurisdiction Classifier",
-            "Procedural Rules",
-            "Legal Research",
-            "CourtListener Research",
-            "Authority Validation",
-            "Citation Treatment Checker",
-            "Claim Element Checklist",
-            "Evidence Sufficiency Review",
-            "Document Strategy",
-            "Draft Generator",
-            "AI Argument Analysis",
-            "Vulnerability / Demurrer-Proofing Review",
-            "Filing Readiness Checklist",
-            "Export Center",
-            "Settings",
-            "Audit Log / Verification History",
-        ])
+        self.sidebar.addItems(
+            [
+                "Dashboard",
+                "Case Intake",
+                "File Submission",
+                "Case Folder Intake",
+                "Parties",
+                "Facts",
+                "Claims / Defenses",
+                "Evidence",
+                "Action Items & Due Dates",
+                "Litigation Timeline",
+                "Jurisdiction Classifier",
+                "Procedural Rules",
+                "Legal Research",
+                "CourtListener Research",
+                "Authority Validation",
+                "Citation Treatment Checker",
+                "Claim Element Checklist",
+                "Evidence Sufficiency Review",
+                "Document Strategy",
+                "Draft Generator",
+                "AI Argument Analysis",
+                "Vulnerability / Demurrer-Proofing Review",
+                "Filing Readiness Checklist",
+                "Export Center",
+                "Settings",
+                "Audit Log / Verification History",
+            ]
+        )
         self.sidebar.currentRowChanged.connect(self._switch_view)
         self.main_layout.addWidget(self.sidebar)
 
@@ -149,6 +154,13 @@ class MainWindow(QtWidgets.QMainWindow):
         self.content_layout = QtWidgets.QVBoxLayout(self.content_area)
         self.content_layout.setContentsMargins(18, 12, 18, 12)
         self.content_layout.setSpacing(10)
+
+        self.workspace_tabs = QtWidgets.QTabBar()
+        self.workspace_tabs.addTab("Case Workspace")
+        self.workspace_tabs.addTab(SMART_REVIEW_TAB_LABEL)
+        self.workspace_tabs.currentChanged.connect(self._switch_workspace_tab)
+        self.content_layout.addWidget(self.workspace_tabs)
+
         self.toolbar_widget = QtWidgets.QWidget()
         self.toolbar_layout = QtWidgets.QHBoxLayout(self.toolbar_widget)
         self.toolbar_layout.setContentsMargins(8, 8, 8, 8)
@@ -194,6 +206,7 @@ class MainWindow(QtWidgets.QMainWindow):
             "Export Center": ExportView(self.db_path),
             "Settings": SettingsView(self.db_path),
             "Audit Log / Verification History": AuditLogView(self.db_path),
+            SMART_REVIEW_TAB_LABEL: CourtResponseComplianceView(self.db_path),
         }
         for view in self.views.values():
             view.prepare_for_display()
@@ -245,17 +258,54 @@ class MainWindow(QtWidgets.QMainWindow):
                 self.statusBar().showMessage("No active case selected.")
 
     def _switch_view(self, index: int) -> None:
+        if self._switching_workspace_tab:
+            return
         with performance_checkpoint(
             "gui_switch_view",
             context={"index": index},
             slow_ms=500,
         ):
+            if index < 0:
+                return
+            self._last_case_workspace_row = index
+            self._switching_workspace_tab = True
+            self.workspace_tabs.setCurrentIndex(0)
+            self._switching_workspace_tab = False
+            self.toolbar_widget.show()
+            self.sidebar.setEnabled(True)
             self.stack.setCurrentIndex(index)
             current_view = self.stack.currentWidget()
             if hasattr(current_view, "refresh"):
                 current_view.refresh()
             if self.safe_check:
                 self.safe_check.schedule_snapshot()
+
+    def _switch_workspace_tab(self, index: int) -> None:
+        if self._switching_workspace_tab:
+            return
+        if index == 1:
+            self.toolbar_widget.hide()
+            self.sidebar.setEnabled(False)
+            review_view = self.views[SMART_REVIEW_TAB_LABEL]
+            self.stack.setCurrentWidget(review_view)
+            review_view.refresh()
+            self.statusBar().showMessage("Smart Document Review - standalone court response compliance review")
+            if self.safe_check:
+                self.safe_check.schedule_snapshot()
+            return
+
+        self.toolbar_widget.show()
+        self.sidebar.setEnabled(True)
+        row = self.sidebar.currentRow()
+        if row < 0:
+            row = self._last_case_workspace_row
+            self.sidebar.setCurrentRow(row)
+        self.stack.setCurrentIndex(row)
+        current_view = self.stack.currentWidget()
+        if hasattr(current_view, "refresh"):
+            current_view.refresh()
+        if self.safe_check:
+            self.safe_check.schedule_snapshot()
 
     def closeEvent(self, event: QtCore.QCloseEvent) -> None:
         if self.safe_check:

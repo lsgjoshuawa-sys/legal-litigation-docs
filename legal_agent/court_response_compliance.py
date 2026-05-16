@@ -345,6 +345,7 @@ def run_court_response_compliance_review(
         strict_gate,
         merged_issues,
         courtlistener.get("usable_sources", []),
+        extraction_metadata=extraction["metadata"],
         document_generator=document_generator,
     )
     generated_document_paths = write_generated_document(
@@ -762,24 +763,34 @@ def generate_corrected_document(
     strict_gate: dict[str, Any],
     issues: list[dict[str, Any]],
     usable_sources: list[dict[str, Any]],
+    extraction_metadata: dict[str, Any] | None = None,
     *,
     document_generator: DocumentGenerator | None = None,
 ) -> dict[str, Any]:
     if document_generator is not None:
         try:
-            return _normalize_generated_document(
-                document_generator(document_text, config, strict_gate, issues, usable_sources),
-                strict_gate,
-                usable_sources,
+            return _with_combined_source_info(
+                _normalize_generated_document(
+                    document_generator(document_text, config, strict_gate, issues, usable_sources),
+                    strict_gate,
+                    usable_sources,
+                ),
+                extraction_metadata,
             )
         except Exception as exc:
             logger.exception("Injected document generator failed")
-            return _fallback_generated_document(document_text, config, strict_gate, issues, usable_sources, error=str(exc))
+            return _with_combined_source_info(
+                _fallback_generated_document(document_text, config, strict_gate, issues, usable_sources, extraction_metadata, error=str(exc)),
+                extraction_metadata,
+            )
 
     load_dotenv()
     api_key = os.getenv("OPENAI_API_KEY", "").strip()
     if not api_key:
-        return _fallback_generated_document(document_text, config, strict_gate, issues, usable_sources)
+        return _with_combined_source_info(
+            _fallback_generated_document(document_text, config, strict_gate, issues, usable_sources, extraction_metadata),
+            extraction_metadata,
+        )
 
     try:
         from .openai_client import _chat_completion
@@ -790,6 +801,7 @@ def generate_corrected_document(
                 "strict_gate": strict_gate,
                 "validated_same_jurisdiction_sources": usable_sources,
                 "issues_to_correct": issues,
+                "source_documents": _combined_source_info(extraction_metadata),
                 "original_document_text": document_text[:45000],
             },
             indent=2,
@@ -806,10 +818,16 @@ def generate_corrected_document(
             max_tokens=3600,
             action="court response corrected document generation",
         )
-        return _normalize_generated_document(generated, strict_gate, usable_sources)
+        return _with_combined_source_info(
+            _normalize_generated_document(generated, strict_gate, usable_sources),
+            extraction_metadata,
+        )
     except Exception as exc:
         logger.exception("OpenAI corrected document generation failed")
-        return _fallback_generated_document(document_text, config, strict_gate, issues, usable_sources, error=str(exc))
+        return _with_combined_source_info(
+            _fallback_generated_document(document_text, config, strict_gate, issues, usable_sources, extraction_metadata, error=str(exc)),
+            extraction_metadata,
+        )
 
 
 def write_generated_document(
@@ -929,6 +947,9 @@ def assemble_review_report(
             "summary": generated_document.get("summary"),
             "warning": generated_document.get("warning"),
             "references_used": generated_document.get("references_used", []),
+            "combines_multiple_sources": generated_document.get("combines_multiple_sources", False),
+            "combined_source_document_count": generated_document.get("combined_source_document_count", 1),
+            "combined_source_filenames": generated_document.get("combined_source_filenames", []),
         },
         "Human Review Required": {
             "required": True,
@@ -1143,6 +1164,7 @@ Mandatory limits:
 - Include this disclaimer: "{DISCLAIMER}"
 
 Drafting expectations:
+- If multiple source documents are provided, combine them into one integrated corrected response draft. Do not create separate drafts per file.
 - Include a court-style caption placeholder using the configured court, county, city, judge, parties, and case number placeholders where missing.
 - Identify the request being answered.
 - Organize the response into numbered sections.
@@ -1187,10 +1209,11 @@ def _fallback_generated_document(
     strict_gate: dict[str, Any],
     issues: list[dict[str, Any]],
     usable_sources: list[dict[str, Any]],
+    extraction_metadata: dict[str, Any] | None = None,
     *,
     error: str = "",
 ) -> dict[str, Any]:
-    content = _fallback_corrected_document_markdown(document_text, config, issues, usable_sources, strict_gate)
+    content = _fallback_corrected_document_markdown(document_text, config, issues, usable_sources, strict_gate, extraction_metadata)
     if error:
         content += f"\n\n## Generation Error\n\nOpenAI document generation failed and the local fallback was used: {error[:300]}\n"
     return {
@@ -1211,8 +1234,14 @@ def _fallback_corrected_document_markdown(
     issues: list[dict[str, Any]],
     usable_sources: list[dict[str, Any]],
     strict_gate: dict[str, Any],
+    extraction_metadata: dict[str, Any] | None = None,
 ) -> str:
     status_line = "STRICT GATE ACCEPTED" if strict_gate.get("accepted") else "NOT CERTIFIED FOR FILING"
+    source_info = _combined_source_info(extraction_metadata)
+    source_lines = [
+        f"- {filename}"
+        for filename in source_info["combined_source_filenames"]
+    ] or ["- No source filename was recorded."]
     references = usable_sources or []
     reference_lines = [
         f"- {source.get('case_title', 'CourtListener result')} ({source.get('court', 'court unknown')}) - {source.get('url_or_source_id', 'no URL/source ID')}"
@@ -1254,6 +1283,12 @@ Response to {config.request_type}
 ## Preliminary Statement
 
 This response is submitted in connection with the {config.request_type.lower()} in the above-captioned matter. The response is limited to the court, venue, procedural posture, and request context identified by the filer.
+
+## Source Documents Combined
+
+This generated draft combines {source_info["combined_source_document_count"]} uploaded source document(s) into one proposed response draft.
+
+{chr(10).join(source_lines)}
 
 ## Jurisdiction and Venue Confirmation
 
@@ -1332,6 +1367,45 @@ def _normalize_reference_list(value: Any, usable_sources: list[dict[str, Any]]) 
     if references:
         return references
     return usable_sources
+
+
+def _with_combined_source_info(
+    generated_document: dict[str, Any],
+    extraction_metadata: dict[str, Any] | None,
+) -> dict[str, Any]:
+    source_info = _combined_source_info(extraction_metadata)
+    enriched = dict(generated_document)
+    enriched.update(source_info)
+    if source_info["combines_multiple_sources"] and "Source Documents Combined" not in enriched.get("content_markdown", ""):
+        source_lines = "\n".join(f"- {filename}" for filename in source_info["combined_source_filenames"])
+        enriched["content_markdown"] = (
+            enriched.get("content_markdown", "").rstrip()
+            + "\n\n## Source Documents Combined\n\n"
+            + f"This generated draft combines {source_info['combined_source_document_count']} uploaded source documents into one proposed response draft.\n\n"
+            + source_lines
+            + "\n"
+        )
+    return enriched
+
+
+def _combined_source_info(extraction_metadata: dict[str, Any] | None) -> dict[str, Any]:
+    metadata = extraction_metadata if isinstance(extraction_metadata, dict) else {}
+    documents = metadata.get("documents") if isinstance(metadata.get("documents"), list) else []
+    if documents:
+        filenames = [
+            _clean_text(document.get("filename") or document.get("original_path") or "source document")
+            for document in documents
+            if isinstance(document, dict)
+        ]
+    else:
+        filenames = [_clean_text(metadata.get("filename") or metadata.get("original_path") or "source document")]
+    filenames = [filename for filename in filenames if filename]
+    count = len(filenames) if filenames else 1
+    return {
+        "combines_multiple_sources": count > 1,
+        "combined_source_document_count": count,
+        "combined_source_filenames": filenames or ["source document"],
+    }
 
 
 def _normalize_ai_analysis(value: dict[str, Any] | str) -> dict[str, Any]:

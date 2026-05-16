@@ -8,7 +8,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 os.environ.setdefault("LEGAL_AGENT_SAFE_CHECK_DISABLED", "1")
 
-from PySide6 import QtWidgets
+from PySide6 import QtCore, QtWidgets
 
 from legal_agent import db
 from legal_agent.court_response_compliance import (
@@ -356,6 +356,34 @@ class CourtResponseComplianceTests(unittest.TestCase):
                 self.assertTrue(Path(path).exists())
                 self.assertGreater(Path(path).stat().st_size, 20)
 
+    def test_multiple_source_files_are_combined_into_one_generated_document(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            first = Path(temp_dir) / "request_context.txt"
+            second = Path(temp_dir) / "proposed_response.txt"
+            first.write_text("Judge order context for Sacramento Superior Court motion response.", encoding="utf-8")
+            second.write_text("Draft response with signature and proof of service placeholders.", encoding="utf-8")
+
+            result = run_court_response_compliance_review(
+                [first, second],
+                review_config(),
+                storage_root=Path(temp_dir) / "reviews",
+                openai_reviewer=fake_openai_reviewer,
+                document_generator=fake_document_generator,
+            )
+
+            generated = result["generated_document"]
+            metadata = result["report"]["Extraction Metadata"]
+            report_generated = result["report"]["Generated Corrected Document"]
+
+            self.assertTrue(generated["combines_multiple_sources"])
+            self.assertEqual(generated["combined_source_document_count"], 2)
+            self.assertIn("request_context.txt", generated["combined_source_filenames"])
+            self.assertIn("proposed_response.txt", generated["combined_source_filenames"])
+            self.assertIn("Source Documents Combined", generated["content_markdown"])
+            self.assertEqual(len(metadata["documents"]), 2)
+            self.assertEqual(report_generated["combined_source_document_count"], 2)
+            self.assertTrue(report_generated["combines_multiple_sources"])
+
     def test_strict_gate_rejects_non_100_confidence_even_with_reference(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             document = write_complete_review_document(temp_dir)
@@ -438,9 +466,16 @@ class CourtResponseComplianceTests(unittest.TestCase):
             self.assertEqual(window.workspace_tabs.tabText(1), "Smart Document Review")
             window.workspace_tabs.setCurrentIndex(1)
 
-            self.assertEqual(window.stack.currentWidget(), window.views["Smart Document Review"])
+            view = window.views["Smart Document Review"]
+            self.assertEqual(window.stack.currentWidget(), view)
             self.assertFalse(window.toolbar_widget.isVisible())
             self.assertFalse(window.sidebar.isEnabled())
+            self.assertEqual(view.scroll_area.horizontalScrollBarPolicy(), QtCore.Qt.ScrollBarAlwaysOff)
+            self.assertIn("Browse Files", view.browse_button.text())
+            self.assertIn("combined into one", view.file_input.placeholderText())
+            self.assertIn("combined into one", view.combine_label.text())
+            for text_edit in view.findChildren(QtWidgets.QTextEdit):
+                self.assertEqual(text_edit.horizontalScrollBarPolicy(), QtCore.Qt.ScrollBarAlwaysOff)
 
 
 if __name__ == "__main__":

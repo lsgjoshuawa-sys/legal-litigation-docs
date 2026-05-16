@@ -4,6 +4,7 @@ import json
 from typing import Any, List, Optional
 
 from . import db
+from .case_folders import ensure_case_folder
 from .case_tracks import normalize_legal_track
 from .models import Case, Party, Fact, Claim, Evidence, ActionItem
 
@@ -87,7 +88,9 @@ def create_case(
             ),
         )
         conn.commit()
-        return cursor.lastrowid
+        case_id = cursor.lastrowid
+    ensure_case_folder(case_id, case.title, db_path=db_path)
+    return case_id
 
 
 def add_party(
@@ -381,7 +384,10 @@ def update_case(
             ),
         )
         conn.commit()
-        return cursor.rowcount == 1
+        updated = cursor.rowcount == 1
+    if updated:
+        ensure_case_folder(case_id, title, db_path=db_path)
+    return updated
 
 
 def update_party(

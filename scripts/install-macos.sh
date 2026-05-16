@@ -69,10 +69,10 @@ if [ "$create_shortcut" = yes ]; then
 </plist>
 EOF
 
-    cat > "$macos_dir/launch" <<EOF
+cat > "$macos_dir/launch" <<EOF
 #!/bin/sh
 cd "$project_root"
-exec "$project_root/.venv/bin/python" -m legal_agent.gui
+exec "$project_root/.venv/bin/python" "$project_root/launch_gui.pyw"
 EOF
     chmod +x "$macos_dir/launch"
     printf '%s\n' "Desktop shortcut created: $app_dir"
@@ -80,4 +80,3 @@ fi
 
 printf '%s\n' "Installation complete."
 printf '%s\n' "Start the GUI with: $project_root/legal-agent-gui"
-

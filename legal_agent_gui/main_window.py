@@ -9,6 +9,7 @@ from .widgets import BaseView
 from .dashboard import DashboardView
 from .case_intake_view import CaseIntakeView
 from .file_submission_view import FileSubmissionView
+from .case_folder_intake_view import CaseFolderIntakeView
 from .parties_view import PartiesView
 from .facts_view import FactsView
 from .claims_view import ClaimsView
@@ -33,6 +34,7 @@ from .settings_view import SettingsView
 from .audit_log_view import AuditLogView
 from . import widgets
 from legal_agent.intake import list_case_ids, list_cases, get_case
+from legal_agent.case_folders import scan_all_case_folders
 from legal_agent.logger import get_logger
 from legal_agent.observability import performance_checkpoint
 from legal_agent.db import check_db_health, init_db
@@ -61,6 +63,13 @@ class MainWindow(QtWidgets.QMainWindow):
                 # Check database health
                 if not check_db_health(db_path):
                     logger.warning("Database health check failed, attempting to continue")
+
+                self.startup_folder_scan_result = None
+                try:
+                    self.startup_folder_scan_result = scan_all_case_folders(db_path=self.db_path)
+                    logger.debug("Startup case-folder scan completed: %s", self.startup_folder_scan_result.to_dict())
+                except Exception as exc:
+                    logger.warning("Startup case-folder scan failed: %s", exc)
                 
                 self.setWindowTitle("Litigation Expert AI System")
                 # Auto-adjust window size to available screen dimensions
@@ -83,10 +92,17 @@ class MainWindow(QtWidgets.QMainWindow):
                 self._build_sidebar()
                 self._build_content()
                 self.refresh_case_data()
-                self.statusBar().showMessage("Ready")
+                ready_message = "Ready"
+                if self.startup_folder_scan_result:
+                    if self.startup_folder_scan_result.warnings:
+                        ready_message = "Ready - case-folder extraction pending: " + "; ".join(self.startup_folder_scan_result.warnings)
+                    elif self.startup_folder_scan_result.pending_extractions:
+                        ready_message = f"Ready - {self.startup_folder_scan_result.pending_extractions} file extractions pending"
+                self.statusBar().showMessage(ready_message)
                 if os.getenv("LEGAL_AGENT_SAFE_CHECK_DISABLED", "").strip().lower() not in {"1", "true", "yes", "on"}:
                     self.safe_check = install_safe_check(self, db_path)
-                    self.statusBar().showMessage("Ready - safe check active")
+                    if ready_message == "Ready":
+                        self.statusBar().showMessage("Ready - safe check active")
                 logger.debug("MainWindow initialization completed successfully")
         except Exception as e:
             logger.exception("Failed to initialize MainWindow")
@@ -101,6 +117,7 @@ class MainWindow(QtWidgets.QMainWindow):
             "Dashboard",
             "Case Intake",
             "File Submission",
+            "Case Folder Intake",
             "Parties",
             "Facts",
             "Claims / Defenses",
@@ -154,6 +171,7 @@ class MainWindow(QtWidgets.QMainWindow):
             "Dashboard": DashboardView(self.db_path),
             "Case Intake": CaseIntakeView(self.db_path, self),
             "File Submission": FileSubmissionView(self.db_path),
+            "Case Folder Intake": CaseFolderIntakeView(self.db_path),
             "Parties": PartiesView(self.db_path),
             "Facts": FactsView(self.db_path),
             "Claims / Defenses": ClaimsView(self.db_path),

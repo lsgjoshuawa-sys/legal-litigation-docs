@@ -66,11 +66,12 @@ if (-not $NoShortcut) {
         if (-not (Test-Path $Pythonw)) {
             $Pythonw = $VenvPython
         }
+        $Launcher = Join-Path $ProjectRoot "launch_gui.pyw"
 
         $Shell = New-Object -ComObject WScript.Shell
         $Shortcut = $Shell.CreateShortcut($ShortcutPath)
         $Shortcut.TargetPath = $Pythonw
-        $Shortcut.Arguments = "-m legal_agent.gui"
+        $Shortcut.Arguments = "`"$Launcher`""
         $Shortcut.WorkingDirectory = $ProjectRoot
         $Shortcut.Description = "Open the Litigation Expert AI System GUI"
         $Shortcut.IconLocation = $Pythonw
@@ -80,4 +81,4 @@ if (-not $NoShortcut) {
 }
 
 Write-Host "Installation complete."
-Write-Host "Start the GUI with: .\.venv\Scripts\python.exe -m legal_agent.gui"
+Write-Host "Start the GUI with: .\.venv\Scripts\python.exe .\launch_gui.pyw"

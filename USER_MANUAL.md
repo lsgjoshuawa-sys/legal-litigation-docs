@@ -14,7 +14,7 @@ This manual explains what each major field is asking for, how to classify the in
 | URL | Full web address | `https://www.courtlistener.com/...` |
 | File path | Local path on your computer | `/home/josh/Documents/export.md` |
 
-Privacy rule: do not enter API keys, passwords, private tokens, or unrelated personal information into case narrative fields. Store API keys only in Settings or `.env`.
+Privacy rule: do not enter API keys, passwords, private tokens, or unrelated personal information into case narrative fields. Case-folder AI extraction reads `OPENAI_API_KEY` only from `.env` or the system environment.
 
 ## Clean Install
 
@@ -59,6 +59,31 @@ Use this page to add a local file to the active case and route it to the topic h
 | Analyze File | Routing action | Button | Reads the file name and text preview, then suggests a handler. |
 | Submit to Handler | Save action | Button | Creates the corresponding record in the selected handler for the active case, then opens the routed handler and surfaces the new record. |
 | Open Routed Handler | Navigation action | Button | Opens the destination page after a successful submission. |
+
+## Case Folder Intake
+
+When a case is saved, the app creates a case directory with section folders that mirror the major review pages. You can copy or paste files into the matching folder in File Explorer/Finder. On startup, and when you click a scan button, the app indexes new files without deleting or moving originals.
+
+Typical folder path:
+
+```text
+cases/<case_id>_<safe_case_title>/
+```
+
+If you use a custom database path, the folder root is created next to that database unless `LEGAL_AGENT_CASES_DIR` is set.
+
+| Field / control | Information classification | Data type | Correct use |
+| --- | --- | --- | --- |
+| Case folder | Case file location | Read-only file path | Shows the folder where section-drop files should be placed. |
+| Scan Active Case Folder | Intake action | Button | Scans the active case folder for new files, hashes them, records metadata, and runs AI extraction when available. |
+| Scan All Case Folders | Startup/intake action | Button | Re-runs the same scan across all known case folders. |
+| Manual Case Data | User-entered records | Read-only text | Shows manually saved parties, facts, claims, evidence, and action items. AI extraction does not overwrite these records. |
+| AI extraction list | AI-derived records | List | Shows source file name, source section folder, extraction status, confidence score, and whether review is needed. |
+| AI extraction detail | AI-derived structured data | Read-only text | Shows summary, key facts, parties, dates, evidence references, claims/defenses, jurisdiction clues, procedural issues, authorities, action items, warnings, and destination recommendations. |
+
+Folder placement is treated as the primary intent signal. For example, a file placed in `05_evidence` is attached to the Evidence section first even if it also mentions parties, dates, or claims. If AI suggests a better folder, the app logs that recommendation and leaves the original file in place.
+
+If `OPENAI_API_KEY` is missing, the app still creates folders, scans files, calculates SHA256 hashes, records manifest metadata, and marks compatible files as `pending_extraction`.
 
 ### Procedure Track Choices
 

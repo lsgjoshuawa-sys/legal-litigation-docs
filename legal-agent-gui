@@ -10,7 +10,7 @@ script_dir=$(CDPATH= cd -- "$(dirname -- "$script_path")" && pwd)
 cd "$script_dir"
 
 if [ -x "$script_dir/.venv/bin/python" ]; then
-    exec "$script_dir/.venv/bin/python" -m legal_agent.gui "$@"
+    exec "$script_dir/.venv/bin/python" "$script_dir/launch_gui.pyw" "$@"
 fi
 
-exec python3 -m legal_agent.gui "$@"
+exec python3 "$script_dir/launch_gui.pyw" "$@"

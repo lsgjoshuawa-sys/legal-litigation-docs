@@ -131,6 +131,8 @@ def _powershell_literal(value: str) -> str:
 
 def create_windows_shortcut(root: Path, log: Callable[[str], None]) -> None:
     pythonw = venv_python(root, prefer_windowed=True)
+    launcher = root / "launch_gui.pyw"
+    launcher_argument = f'"{launcher}"'
     script_dir = root / ".legal_agent"
     script_dir.mkdir(parents=True, exist_ok=True)
     shortcut_script = script_dir / "create_desktop_shortcut.ps1"
@@ -142,7 +144,7 @@ def create_windows_shortcut(root: Path, log: Callable[[str], None]) -> None:
                 "$Shell = New-Object -ComObject WScript.Shell",
                 "$Shortcut = $Shell.CreateShortcut($ShortcutPath)",
                 f"$Shortcut.TargetPath = {_powershell_literal(str(pythonw))}",
-                '$Shortcut.Arguments = "-m legal_agent.gui"',
+                f"$Shortcut.Arguments = {_powershell_literal(launcher_argument)}",
                 f"$Shortcut.WorkingDirectory = {_powershell_literal(str(root))}",
                 f"$Shortcut.Description = {_powershell_literal('Open the ' + APP_NAME + ' GUI')}",
                 f"$Shortcut.IconLocation = {_powershell_literal(str(pythonw))}",
@@ -190,7 +192,7 @@ def create_macos_shortcut(root: Path, log: Callable[[str], None]) -> None:
     launcher.write_text(
         f"""#!/bin/sh
 cd "{root}"
-exec "{venv_python(root)}" -m legal_agent.gui
+exec "{venv_python(root)}" "{root / "launch_gui.pyw"}"
 """,
         encoding="utf-8",
     )
@@ -237,7 +239,7 @@ def create_desktop_shortcut(root: Path, log: Callable[[str], None]) -> None:
 
 def launch_app(root: Path) -> None:
     executable = venv_python(root, prefer_windowed=platform.system() == "Windows")
-    subprocess.Popen([str(executable), "-m", "legal_agent.gui"], cwd=str(root))
+    subprocess.Popen([str(executable), str(root / "launch_gui.pyw")], cwd=str(root))
 
 
 class InstallerWizard:
@@ -544,4 +546,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

@@ -6,7 +6,9 @@
 .coverage
 htmlcov/
 .legal_agent/
+build/
 cases/
+standalone_reviews/
 .pytest_cache/
 __pycache__/
 *.py[cod]

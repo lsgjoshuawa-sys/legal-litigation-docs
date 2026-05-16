@@ -3,15 +3,20 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from PySide6 import QtCore, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 from legal_agent.court_response_compliance import (
     COURT_LEVEL_CHOICES,
     DISCLAIMER,
     FEATURE_NAME,
     REQUEST_TYPE_CHOICES,
+    collect_review_documents_from_case_folder,
+    create_smart_review_case_folder,
+    list_smart_review_case_folders,
     report_to_markdown,
     run_court_response_compliance_review,
+    run_court_response_compliance_review_from_case_folder,
+    smart_review_cases_root,
 )
 from legal_agent.logger import get_logger
 from .widgets import BaseView
@@ -27,8 +32,47 @@ class CourtResponseComplianceView(BaseView):
         )
         self.db_path = db_path
         self.last_result: dict[str, Any] | None = None
+        self.project_root = Path.cwd()
+        self.selected_case_folder: Path | None = None
 
         self._use_vertical_scroll_only()
+
+        self.cases_root_label = QtWidgets.QLabel(f"Case folder root: {smart_review_cases_root(self.project_root)}")
+        self.cases_root_label.setWordWrap(True)
+        self.layout.addWidget(self.cases_root_label)
+
+        self.case_folder_name_input = QtWidgets.QLineEdit()
+        self.case_folder_name_input.setPlaceholderText("Case name for a Smart Document Review folder")
+        self.create_case_folder_button = QtWidgets.QPushButton("Create Case Folder")
+        self.refresh_case_folders_button = QtWidgets.QPushButton("Refresh Folders")
+        self.create_case_folder_button.clicked.connect(self._create_case_folder)
+        self.refresh_case_folders_button.clicked.connect(self._refresh_case_folders)
+
+        case_create_row = QtWidgets.QHBoxLayout()
+        case_create_row.addWidget(self.case_folder_name_input, 1)
+        case_create_row.addWidget(self.create_case_folder_button)
+        case_create_row.addWidget(self.refresh_case_folders_button)
+        self.layout.addLayout(case_create_row)
+
+        self.case_folder_list = QtWidgets.QListWidget()
+        self.case_folder_list.setMaximumHeight(120)
+        self.case_folder_list.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+        self.case_folder_list.currentItemChanged.connect(lambda _current, _previous: self._load_selected_case_folder())
+        self.layout.addWidget(self.case_folder_list)
+
+        self.load_case_folder_button = QtWidgets.QPushButton("Load Selected Folder")
+        self.open_case_folder_button = QtWidgets.QPushButton("Open Selected Folder")
+        self.run_case_folder_button = QtWidgets.QPushButton("Run Selected Folder Review")
+        self.load_case_folder_button.clicked.connect(self._load_selected_case_folder)
+        self.open_case_folder_button.clicked.connect(self._open_selected_case_folder)
+        self.run_case_folder_button.clicked.connect(self._run_selected_case_folder_review)
+        folder_action_grid = QtWidgets.QGridLayout()
+        for index, button in enumerate(
+            [self.load_case_folder_button, self.open_case_folder_button, self.run_case_folder_button]
+        ):
+            button.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed)
+            folder_action_grid.addWidget(button, 0, index)
+        self.layout.addLayout(folder_action_grid)
 
         self.file_input = QtWidgets.QTextEdit()
         self.file_input.setPlaceholderText("Select one or more source files. Each path appears on its own line and will be combined into one generated draft.")
@@ -140,9 +184,11 @@ class CourtResponseComplianceView(BaseView):
         self._wrap_text_edit(self.output)
         self.layout.addWidget(self.output)
         self._set_export_buttons_enabled(False)
+        self._refresh_case_folders()
 
     def refresh(self) -> None:
         self._set_export_buttons_enabled(bool(self.last_result))
+        self._refresh_case_folders()
 
     def _browse_document(self) -> None:
         try:
@@ -189,6 +235,100 @@ class CourtResponseComplianceView(BaseView):
             f"Generated draft Markdown: {generated_paths.get('markdown', 'unavailable')}"
         )
         self._set_export_buttons_enabled(True)
+
+    def _run_selected_case_folder_review(self) -> None:
+        case_folder = self._selected_case_folder_path()
+        if not case_folder:
+            self.status_label.setText("Select a Smart Document Review case folder first.")
+            return
+        self.output.clear()
+        self.status_label.setText("Running fresh folder-limited Smart Document Review...")
+        QtWidgets.QApplication.processEvents()
+        try:
+            result = run_court_response_compliance_review_from_case_folder(
+                case_folder,
+                self._config_from_inputs(),
+                project_root=self.project_root,
+            )
+        except Exception as exc:
+            self.last_result = None
+            self._set_export_buttons_enabled(False)
+            self._show_error("Selected folder review", exc)
+            return
+
+        self.last_result = result
+        report = result.get("report", {})
+        self.output.setPlainText(report_to_markdown(report))
+        paths = result.get("report_paths", {})
+        generated_paths = result.get("generated_document_paths", {})
+        gate = report.get("Strict Confidence Gate", {})
+        scope = report.get("Extraction Metadata", {}).get("source_scope", {})
+        self.status_label.setText(
+            "Folder review complete.\n"
+            f"Case folder: {scope.get('case_folder', case_folder)}\n"
+            f"Freshly scanned files: {scope.get('selected_file_count', 0)}\n"
+            f"Strict gate accepted: {gate.get('accepted', False)}\n"
+            f"Report JSON: {paths.get('json', 'unavailable')}\n"
+            f"Generated draft Markdown: {generated_paths.get('markdown', 'unavailable')}"
+        )
+        self._set_export_buttons_enabled(True)
+
+    def _create_case_folder(self) -> None:
+        try:
+            result = create_smart_review_case_folder(self.case_folder_name_input.text(), self.project_root)
+        except Exception as exc:
+            self._show_error("Create Smart Document Review case folder", exc)
+            return
+        self.case_folder_name_input.clear()
+        self._refresh_case_folders(select_case_name=result["case_name"])
+        self.status_label.setText(f"Created Smart Document Review folder:\n{result['case_folder']}")
+
+    def _refresh_case_folders(self, select_case_name: str = "") -> None:
+        current_name = select_case_name
+        current_item = self.case_folder_list.currentItem()
+        if not current_name and current_item:
+            current_name = current_item.text()
+        self.case_folder_list.blockSignals(True)
+        self.case_folder_list.clear()
+        for folder in list_smart_review_case_folders(self.project_root):
+            item = QtWidgets.QListWidgetItem(folder["case_name"])
+            item.setData(QtCore.Qt.UserRole, folder["case_folder"])
+            self.case_folder_list.addItem(item)
+            if current_name and folder["case_name"] == current_name:
+                self.case_folder_list.setCurrentItem(item)
+        self.case_folder_list.blockSignals(False)
+        if self.case_folder_list.currentItem():
+            self._load_selected_case_folder()
+
+    def _load_selected_case_folder(self) -> None:
+        case_folder = self._selected_case_folder_path()
+        if not case_folder:
+            return
+        self.selected_case_folder = case_folder
+        try:
+            files = collect_review_documents_from_case_folder(case_folder, project_root=self.project_root)
+        except Exception as exc:
+            self._show_error("Load selected Smart Document Review folder", exc)
+            return
+        self.file_input.setPlainText("\n".join(str(path) for path in files))
+        self.status_label.setText(
+            f"Loaded {len(files)} supported source file(s) from selected folder only:\n{case_folder}"
+        )
+
+    def _open_selected_case_folder(self) -> None:
+        case_folder = self._selected_case_folder_path()
+        if not case_folder:
+            self.status_label.setText("Select a Smart Document Review case folder first.")
+            return
+        QtGui.QDesktopServices.openUrl(QtCore.QUrl.fromLocalFile(str(case_folder)))
+        self.status_label.setText(f"Opened Smart Document Review folder:\n{case_folder}")
+
+    def _selected_case_folder_path(self) -> Path | None:
+        item = self.case_folder_list.currentItem()
+        if not item:
+            return None
+        path = item.data(QtCore.Qt.UserRole)
+        return Path(path) if path else None
 
     def _config_from_inputs(self) -> dict[str, str]:
         return {

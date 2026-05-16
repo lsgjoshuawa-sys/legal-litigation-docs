@@ -88,6 +88,8 @@ REPORT_SECTION_TITLES = [
 TEXT_SUFFIXES = {".txt", ".md", ".csv", ".json", ".xml", ".html", ".htm", ".rtf"}
 DOCX_SUFFIXES = {".docx"}
 PDF_SUFFIXES = {".pdf"}
+SMART_REVIEW_CASES_DIR_NAME = "smart_document_review_cases"
+SUPPORTED_REVIEW_SUFFIXES = TEXT_SUFFIXES | DOCX_SUFFIXES | PDF_SUFFIXES
 
 FEDERAL_LEVELS = {
     "federal district court",
@@ -298,6 +300,7 @@ def run_court_response_compliance_review(
     openai_reviewer: OpenAIReviewer | None = None,
     document_generator: DocumentGenerator | None = None,
     courtlistener_client: CourtListenerReviewClient | None = None,
+    source_scope: dict[str, Any] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     review_config = config if isinstance(config, ReviewConfig) else ReviewConfig.from_mapping(config)
@@ -321,6 +324,12 @@ def run_court_response_compliance_review(
     _ensure_storage(storage)
 
     extraction = extract_review_documents(source_paths, storage["input"], review_id, timestamp, review_config)
+    extraction["metadata"]["source_scope"] = source_scope or {
+        "mode": "explicit_file_selection",
+        "selected_file_count": len(source_paths),
+        "selected_files": [str(path) for path in source_paths],
+        "fresh_scan_timestamp": timestamp.isoformat(),
+    }
     local_analysis = build_local_document_analysis(extraction["text"], review_config)
     ai_analysis = _run_ai_review(
         extraction["text"],
@@ -377,6 +386,99 @@ def run_court_response_compliance_review(
         "generated_document_paths": generated_document_paths,
         "storage_root": str(storage["root"]),
     }
+
+
+def smart_review_cases_root(project_root: str | Path | None = None) -> Path:
+    root = Path(project_root).expanduser() if project_root else Path.cwd()
+    return root / SMART_REVIEW_CASES_DIR_NAME
+
+
+def create_smart_review_case_folder(case_name: str, project_root: str | Path | None = None) -> dict[str, Any]:
+    cases_root = smart_review_cases_root(project_root)
+    safe_name = _safe_case_folder_name(case_name)
+    if not safe_name:
+        raise ValueError("Enter a case name before creating a Smart Document Review folder.")
+    case_folder = _resolve_case_folder_path(cases_root / safe_name, cases_root)
+    case_folder.mkdir(parents=True, exist_ok=True)
+    return {
+        "case_name": safe_name,
+        "case_folder": str(case_folder),
+        "cases_root": str(cases_root.resolve(strict=False)),
+        "case_names": [folder["case_name"] for folder in list_smart_review_case_folders(project_root)],
+    }
+
+
+def list_smart_review_case_folders(project_root: str | Path | None = None) -> list[dict[str, str]]:
+    cases_root = smart_review_cases_root(project_root)
+    cases_root.mkdir(parents=True, exist_ok=True)
+    root_resolved = cases_root.resolve(strict=False)
+    folders: list[dict[str, str]] = []
+    for child in sorted(cases_root.iterdir(), key=lambda item: item.name.lower()):
+        if not child.is_dir() or child.name.startswith("."):
+            continue
+        resolved = child.resolve(strict=False)
+        if not _path_is_within(resolved, root_resolved):
+            continue
+        folders.append({"case_name": child.name, "case_folder": str(resolved)})
+    return folders
+
+
+def collect_review_documents_from_case_folder(
+    case_name_or_path: str | Path,
+    *,
+    project_root: str | Path | None = None,
+) -> list[Path]:
+    cases_root = smart_review_cases_root(project_root)
+    case_folder = _case_folder_from_name_or_path(case_name_or_path, cases_root)
+    files: list[Path] = []
+    for child in sorted(case_folder.iterdir(), key=lambda item: item.name.lower()):
+        if child.name.startswith(".") or child.is_dir():
+            continue
+        resolved = child.resolve(strict=False)
+        if not _path_is_within(resolved, case_folder):
+            continue
+        if resolved.suffix.lower() in SUPPORTED_REVIEW_SUFFIXES:
+            files.append(resolved)
+    return files
+
+
+def run_court_response_compliance_review_from_case_folder(
+    case_name_or_path: str | Path,
+    config: ReviewConfig | dict[str, Any],
+    *,
+    project_root: str | Path | None = None,
+    storage_root: str | Path | None = None,
+    openai_reviewer: OpenAIReviewer | None = None,
+    document_generator: DocumentGenerator | None = None,
+    courtlistener_client: CourtListenerReviewClient | None = None,
+    now: datetime | None = None,
+) -> dict[str, Any]:
+    timestamp = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    cases_root = smart_review_cases_root(project_root)
+    case_folder = _case_folder_from_name_or_path(case_name_or_path, cases_root)
+    source_paths = collect_review_documents_from_case_folder(case_folder, project_root=project_root)
+    if not source_paths:
+        raise ValueError(f"No supported review documents were found in Smart Document Review folder: {case_folder}")
+    source_scope = {
+        "mode": "smart_review_case_folder",
+        "case_name": case_folder.name,
+        "cases_root": str(cases_root.resolve(strict=False)),
+        "case_folder": str(case_folder),
+        "selected_file_count": len(source_paths),
+        "selected_files": [str(path) for path in source_paths],
+        "fresh_scan_timestamp": timestamp.isoformat(),
+        "path_lock": "Evaluation input is limited to files directly inside this case folder at initialization time.",
+    }
+    return run_court_response_compliance_review(
+        source_paths,
+        config,
+        storage_root=storage_root,
+        openai_reviewer=openai_reviewer,
+        document_generator=document_generator,
+        courtlistener_client=courtlistener_client,
+        source_scope=source_scope,
+        now=timestamp,
+    )
 
 
 def extract_document_text(
@@ -1928,6 +2030,47 @@ def _normalize_document_paths(document_path: str | Path | Sequence[str | Path]) 
     else:
         raw_paths = list(document_path)
     return [Path(path).expanduser() for path in raw_paths if str(path).strip()]
+
+
+def _safe_case_folder_name(case_name: str) -> str:
+    cleaned = _clean_text(case_name)
+    cleaned = re.sub(r"[\\/]+", " ", cleaned)
+    cleaned = re.sub(r"[^A-Za-z0-9._ -]+", "", cleaned)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" ._-")
+    return cleaned[:120]
+
+
+def _case_folder_from_name_or_path(case_name_or_path: str | Path, cases_root: Path) -> Path:
+    raw = Path(case_name_or_path).expanduser()
+    if raw.is_absolute() or len(raw.parts) > 1:
+        candidate = raw
+    else:
+        safe_name = _safe_case_folder_name(str(case_name_or_path))
+        if not safe_name:
+            raise ValueError("Select or enter a Smart Document Review case folder.")
+        candidate = cases_root / safe_name
+    case_folder = _resolve_case_folder_path(candidate, cases_root)
+    if not case_folder.exists() or not case_folder.is_dir():
+        raise ValueError(f"Smart Document Review case folder does not exist: {case_folder}")
+    return case_folder
+
+
+def _resolve_case_folder_path(candidate: str | Path, cases_root: Path) -> Path:
+    root = cases_root.resolve(strict=False)
+    path = Path(candidate).expanduser().resolve(strict=False)
+    if not _path_is_within(path, root):
+        raise ValueError(f"Smart Document Review folders must stay inside {root}")
+    if path == root:
+        raise ValueError("Select a case folder inside the Smart Document Review cases directory, not the root directory.")
+    return path
+
+
+def _path_is_within(path: Path, root: Path) -> bool:
+    try:
+        path.relative_to(root)
+        return True
+    except ValueError:
+        return False
 
 
 def _build_review_id(path: Path, config: ReviewConfig, timestamp: datetime, *, document_count: int = 1) -> str:

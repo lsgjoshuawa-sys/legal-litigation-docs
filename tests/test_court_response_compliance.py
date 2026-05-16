@@ -15,7 +15,12 @@ from legal_agent.court_response_compliance import (
     NO_SAME_JURISDICTION_SUPPORT,
     STRICT_CERTAINTY_REJECTION,
     ReviewConfig,
+    collect_review_documents_from_case_folder,
+    create_smart_review_case_folder,
+    list_smart_review_case_folders,
     run_court_response_compliance_review,
+    run_court_response_compliance_review_from_case_folder,
+    smart_review_cases_root,
     validate_courtlistener_result,
 )
 from legal_agent.intake import create_case, list_cases
@@ -383,6 +388,60 @@ class CourtResponseComplianceTests(unittest.TestCase):
             self.assertEqual(len(metadata["documents"]), 2)
             self.assertEqual(report_generated["combined_source_document_count"], 2)
             self.assertTrue(report_generated["combines_multiple_sources"])
+
+    def test_smart_review_case_folders_are_created_only_under_project_directory(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = create_smart_review_case_folder("Smith v City / Intake", project_root=temp_dir)
+            folders = list_smart_review_case_folders(project_root=temp_dir)
+            root = smart_review_cases_root(temp_dir).resolve(strict=False)
+
+            self.assertEqual(result["case_name"], "Smith v City Intake")
+            self.assertTrue(Path(result["case_folder"]).is_dir())
+            self.assertTrue(Path(result["case_folder"]).resolve(strict=False).is_relative_to(root))
+            self.assertIn("Smith v City Intake", [folder["case_name"] for folder in folders])
+            with self.assertRaises(ValueError):
+                collect_review_documents_from_case_folder(Path(temp_dir).parent, project_root=temp_dir)
+
+    def test_case_folder_review_scans_fresh_and_cannot_leak_other_paths(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            created = create_smart_review_case_folder("Fresh Scan Case", project_root=temp_dir)
+            case_folder = Path(created["case_folder"])
+            other_created = create_smart_review_case_folder("Other Case", project_root=temp_dir)
+            other_folder = Path(other_created["case_folder"])
+            first = case_folder / "first.txt"
+            first.write_text("First folder-limited court response source.", encoding="utf-8")
+            other_file = other_folder / "outside.txt"
+            other_file.write_text("This other case must not be read.", encoding="utf-8")
+
+            first_result = run_court_response_compliance_review_from_case_folder(
+                "Fresh Scan Case",
+                review_config(),
+                project_root=temp_dir,
+                storage_root=Path(temp_dir) / "reviews1",
+                openai_reviewer=fake_openai_reviewer,
+                document_generator=fake_document_generator,
+            )
+
+            second = case_folder / "second.md"
+            second.write_text("Second newly submitted source for fresh scan.", encoding="utf-8")
+            second_result = run_court_response_compliance_review_from_case_folder(
+                "Fresh Scan Case",
+                review_config(),
+                project_root=temp_dir,
+                storage_root=Path(temp_dir) / "reviews2",
+                openai_reviewer=fake_openai_reviewer,
+                document_generator=fake_document_generator,
+            )
+
+            first_scope = first_result["report"]["Extraction Metadata"]["source_scope"]
+            second_scope = second_result["report"]["Extraction Metadata"]["source_scope"]
+            self.assertEqual(first_scope["selected_file_count"], 1)
+            self.assertEqual(second_scope["selected_file_count"], 2)
+            self.assertIn(str(first.resolve()), second_scope["selected_files"])
+            self.assertIn(str(second.resolve()), second_scope["selected_files"])
+            self.assertNotIn(str(other_file.resolve()), second_scope["selected_files"])
+            self.assertEqual(second_scope["mode"], "smart_review_case_folder")
+            self.assertIn("limited to files directly inside this case folder", second_scope["path_lock"])
 
     def test_strict_gate_rejects_non_100_confidence_even_with_reference(self):
         with tempfile.TemporaryDirectory() as temp_dir:
